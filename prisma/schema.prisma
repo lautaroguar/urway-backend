@@ -1,0 +1,412 @@
+// =============================================================================
+// prisma/schema.prisma — El MODELO de datos de urway (el "contrato")
+// =============================================================================
+//
+// Cada `model` es una tabla de SQLite. Prisma lee este archivo y GENERA el
+// cliente tipado (`npx prisma generate`): así `prisma.usuario.findMany()` ya sabe
+// qué campos tiene un usuario. [PRÁCTICA 03 y 08]
+//
+// Las tablas las CREA `src/initDb.ts` con SQL (como en la práctica de la cátedra:
+// el motor de migraciones de Prisma dio error en Windows). Por eso los nombres y
+// los tipos de acá tienen que coincidir con el SQL de `initDb.ts`. Lo que Prisma
+// no sabe expresar (las reglas CHECK, por ejemplo "las estrellas van de 1 a 5")
+// está solo en ese SQL: igual lo hace cumplir SQLite.
+//
+// LA BASE ESTÁ NORMALIZADA (hasta la 3ª forma normal):
+//   1FN — Cada columna guarda UN solo valor. Nada de listas en texto: los días de
+//         una clase y las fechas borradas de un evento son filas de sus propias
+//         tablas (`EventoDia`, `EventoExcepcion`).
+//   2FN — En las tablas de clave compuesta (`Correlativa`, `Cursada`, `Resenia`,
+//         `EventoDia`...) cada dato depende de la clave ENTERA, no de una parte.
+//   3FN — Ningún dato depende de otro dato que no sea la clave. Por eso no se
+//         guarda lo que se puede calcular (el estado de una materia, la dificultad
+//         promedio, la facultad de un usuario: sale de su carrera) ni se repite lo
+//         que ya está en otra tabla (la categoría "oficiales" de un recurso, la
+//         materia escrita dentro del id de un recurso...).
+//   Además, cada referencia a otra tabla es una CLAVE FORÁNEA (`@relation`): la
+//   base no deja guardar un apunte de una materia que no existe, y al borrar algo
+//   se borra o se desvincula lo que dependía de él (`onDelete`).
+//
+// Convenciones:
+//   - Las fechas de calendario ("2026-10-24") son `String`, igual que en la app:
+//     se comparan como texto y no tienen problemas de zona horaria. TODAS van
+//     como AAAA-MM-DD (también la fecha de nacimiento; la API la muestra DD/MM/AAAA).
+//   - `?` = el campo puede ser NULL.
+//   - Los valores con opciones fijas ("todos" | "amigos") son texto con una regla
+//     CHECK en `initDb.ts` (SQLite no tiene el tipo "enum").
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// LA OFERTA ACADÉMICA: facultades, carreras y el plan de estudios
+// -----------------------------------------------------------------------------
+
+/// Una facultad (o universidad): "uca" → "UCA".
+model Facultad {
+  /// La clave que usa la app ("uca").
+  id       String    @id
+  nombre   String
+  carreras Carrera[]
+}
+
+/// Una carrera de una facultad. Su plan de estudios son sus materias.
+model Carrera {
+  /// La clave que usa la app ("informatica").
+  id         String @id
+  nombre     String
+  facultadId String
+
+  facultad Facultad  @relation(fields: [facultadId], references: [id])
+  materias Materia[]
+  usuarios Usuario[]
+}
+
+/// Una materia del plan de estudios (igual para todos los estudiantes de la carrera).
+model Materia {
+  /// El código: "MAT-201".
+  id                String @id
+  carreraId         String
+  nombre            String
+  cuatrimestre      Int
+  creditos          Int
+  profesor          String
+  /// La dificultad INICIAL (0 a 5): lo que se muestra mientras nadie reseñó la
+  /// materia. La dificultad que ve la app es el PROMEDIO de las reseñas (`Resenia`):
+  /// se calcula en cada lectura y no se guarda.
+  dificultadInicial Float
+
+  carrera       Carrera        @relation(fields: [carreraId], references: [id])
+  /// Las materias que pide esta (sus correlativas).
+  correlativas  Correlativa[]  @relation("pide")
+  /// Las materias que piden a esta como correlativa.
+  habilita      Correlativa[]  @relation("requerida")
+  recursos      Recurso[]
+  links         LinkOficial[]
+  cursadas      Cursada[]
+  instancias    Instancia[]
+  eventos       Evento[]
+  apuntes       Apunte[]
+  notificaciones Notificacion[]
+}
+
+/// "Para cursar `materia` hay que tener APROBADA LA CURSADA de `requiere`".
+/// Una fila por cada par: la clave es el par entero (no puede repetirse).
+model Correlativa {
+  materiaId  String
+  requiereId String
+
+  materia  Materia @relation("pide", fields: [materiaId], references: [id], onDelete: Cascade)
+  requiere Materia @relation("requerida", fields: [requiereId], references: [id], onDelete: Cascade)
+
+  @@id([materiaId, requiereId])
+}
+
+/// Un recurso OFICIAL descargable de una materia (el programa, una guía...). Los
+/// apuntes de los estudiantes no van acá: tienen su propia tabla (`Apunte`).
+model Recurso {
+  id        Int    @id @default(autoincrement())
+  materiaId String
+  nombre    String
+  /// "PDF", "DOCX"...
+  formato   String
+  /// "1.1 MB"
+  peso      String
+
+  materia Materia @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+}
+
+/// Un link oficial de una materia (Discord, aula virtual...).
+model LinkOficial {
+  id        Int    @id @default(autoincrement())
+  materiaId String
+  /// "discord" | "whatsapp" | "campus" | "web" | "repositorio"
+  tipo      String
+  titulo    String
+  detalle   String
+  url       String
+
+  materia Materia @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+}
+
+/// Un aviso institucional (igual para todos).
+model Novedad {
+  id      Int    @id @default(autoincrement())
+  titulo  String
+  detalle String
+  icono   String
+}
+
+// -----------------------------------------------------------------------------
+// CUENTAS Y SESIONES
+// -----------------------------------------------------------------------------
+
+/// Un estudiante con cuenta. La contraseña NUNCA se guarda: se guarda su hash.
+model Usuario {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  apellido        String
+  email           String   @unique
+  dni             String?
+  /// "AAAA-MM-DD" (la API la recibe y la devuelve como DD/MM/AAAA).
+  fechaNacimiento String?
+  /// Su carrera. La facultad NO se guarda acá: sale de la carrera (3FN).
+  carreraId       String
+  /// En qué cuatrimestre de la carrera va (1 a 10).
+  cuatrimestre    Int      @default(1)
+  /// scrypt(contraseña, sal): no se puede "dar vuelta" para obtener la contraseña.
+  hashContrasenia String
+  /// Texto al azar distinto para cada usuario (evita que dos contraseñas iguales den el mismo hash).
+  sal             String
+  /// Privacidad: quién ve sus apuntes y sus notas ("todos" | "amigos").
+  verApuntes      String   @default("todos")
+  verNotas        String   @default("amigos")
+  /// Nombre del archivo de la foto de perfil en `uploads/` (al azar), o NULL si no tiene.
+  foto            String?  @unique
+  creadoEn        DateTime @default(now())
+
+  carrera              Carrera        @relation(fields: [carreraId], references: [id])
+  sesiones             Sesion[]
+  cursadas             Cursada[]
+  instancias           Instancia[]
+  eventos              Evento[]
+  invitaciones         Invitacion[]
+  apuntes              Apunte[]
+  solicitudesEnviadas  Solicitud[]    @relation("enviadas")
+  solicitudesRecibidas Solicitud[]    @relation("recibidas")
+  /// Los avisos que le llegan.
+  notificaciones       Notificacion[] @relation("destinatario")
+  /// Los avisos de otros que hablan de él ("Franco subió un apunte").
+  menciones            Notificacion[] @relation("protagonista")
+}
+
+/// Una sesión iniciada. Se guarda el HASH del token, no el token.
+model Sesion {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  /// SHA-256 del token que tiene el teléfono.
+  hashToken String   @unique
+  venceEn   DateTime
+  creadaEn  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+}
+
+// -----------------------------------------------------------------------------
+// LO ACADÉMICO DE CADA ESTUDIANTE
+// -----------------------------------------------------------------------------
+
+/// El estudiante ARRANCÓ la cursada de la materia (se anotó). Que exista la fila ES
+/// el dato: si no la arrancó (o la abandonó), no hay fila. El ESTADO (bloqueada,
+/// disponible, en curso, pendiente de final, aprobada) no se guarda: se calcula con
+/// las correlativas, esta fila y el historial (ver `reglas.ts`).
+model Cursada {
+  usuarioId Int
+  materiaId String
+
+  usuario Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  materia Materia  @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+  /// Su reseña de dificultad, si dejó una.
+  resenia Resenia?
+
+  @@id([usuarioId, materiaId])
+}
+
+/// La reseña de dificultad (1 a 5 estrellas) de quien cursa o cursó la materia. Su
+/// clave es la de la CURSADA: hay una sola por cursada y, si el estudiante la
+/// abandona (se borra la fila de `Cursada`), la base borra la reseña sola (CASCADE).
+model Resenia {
+  usuarioId     Int
+  materiaId     String
+  estrellas     Int
+  actualizadaEn DateTime @default(now())
+
+  cursada Cursada @relation(fields: [usuarioId, materiaId], references: [usuarioId, materiaId], onDelete: Cascade)
+
+  @@id([usuarioId, materiaId])
+  @@index([materiaId])
+}
+
+/// Algo rendido: un parcial, recuperatorio, TP, exposición o final. No cuelga de
+/// `Cursada` porque lo rendido en una cursada ANTERIOR (que se recursó) se conserva
+/// aunque se abandone la de ahora.
+model Instancia {
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int
+  materiaId     String
+  /// "parcial" | "recuperatorio" | "tp" | "exposicion" | "final"
+  tipo          String
+  /// 1 a 10.
+  nota          Int
+  /// "AAAA-MM-DD"
+  fecha         String
+  cierraCursada Boolean  @default(false)
+  recursa       Boolean  @default(false)
+  creadaEn      DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  materia Materia @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, materiaId])
+}
+
+// -----------------------------------------------------------------------------
+// LA AGENDA
+// -----------------------------------------------------------------------------
+
+/// Un evento de la agenda. Si se repite, se guarda UNA vez con su regla.
+model Evento {
+  id           Int      @id @default(autoincrement())
+  /// Quién lo creó (el organizador).
+  usuarioId    Int
+  titulo       String
+  /// "clase" | "parcial" | "entrega" | "estudio"
+  tipo         String
+  /// La materia (una juntada de "estudio" no lleva: el título dice de qué es).
+  materiaId    String?
+  /// La primera fecha ("AAAA-MM-DD").
+  fecha        String
+  desde        String
+  hasta        String
+  lugar        String   @default("")
+  notas        String?
+  /// "nunca" | "diaria" | "semanal" | "quincenal" | "mensual"
+  frecuencia   String   @default("nunca")
+  repetirHasta String?
+  creadoEn     DateTime @default(now())
+
+  organizador  Usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  /// Si se borra la materia, el evento queda sin materia (no se borra).
+  materia      Materia?          @relation(fields: [materiaId], references: [id], onDelete: SetNull)
+  dias         EventoDia[]
+  excepciones  EventoExcepcion[]
+  invitaciones Invitacion[]
+
+  @@index([usuarioId])
+}
+
+/// Un día de la semana en que se repite un evento (0 = domingo ... 6 = sábado).
+/// Antes era el texto "[1,3]" dentro de `Evento`: ahora, una fila por día (1FN).
+model EventoDia {
+  eventoId Int
+  dia      Int
+
+  evento Evento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@id([eventoId, dia])
+}
+
+/// Una fecha borrada de un evento que se repite ("Eliminar solo este día").
+/// Antes era el texto '["2026-10-24"]' dentro de `Evento`: ahora, una fila por fecha (1FN).
+model EventoExcepcion {
+  eventoId Int
+  /// "AAAA-MM-DD"
+  fecha    String
+
+  evento Evento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@id([eventoId, fecha])
+}
+
+/// Una invitación a una juntada de estudio (un evento "estudio" de otro).
+model Invitacion {
+  id         Int      @id @default(autoincrement())
+  eventoId   Int
+  invitadoId Int
+  /// "pendiente" | "aceptada" | "rechazada"
+  respuesta  String   @default("pendiente")
+  creadaEn   DateTime @default(now())
+
+  evento         Evento         @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  invitado       Usuario        @relation(fields: [invitadoId], references: [id], onDelete: Cascade)
+  /// El aviso que espera la respuesta (se borra solo si se borra la invitación).
+  notificaciones Notificacion[]
+
+  @@unique([eventoId, invitadoId])
+  @@index([invitadoId])
+}
+
+// -----------------------------------------------------------------------------
+// LA COMUNIDAD
+// -----------------------------------------------------------------------------
+
+/// Una solicitud de amistad. Aceptada = son amigos. Entre dos personas hay a lo
+/// sumo UNA (en cualquier sentido): lo asegura un índice único en `initDb.ts`.
+model Solicitud {
+  id       Int      @id @default(autoincrement())
+  deId     Int
+  paraId   Int
+  /// "pendiente" | "aceptada"
+  estado   String   @default("pendiente")
+  creadaEn DateTime @default(now())
+
+  de             Usuario        @relation("enviadas", fields: [deId], references: [id], onDelete: Cascade)
+  para           Usuario        @relation("recibidas", fields: [paraId], references: [id], onDelete: Cascade)
+  /// El aviso que espera la respuesta (se borra solo si se borra la solicitud).
+  notificaciones Notificacion[]
+
+  @@unique([deId, paraId])
+  @@index([paraId])
+}
+
+/// Un apunte: el archivo (foto o PDF) se guarda en `uploads/`; acá, su nombre.
+model Apunte {
+  id          Int     @id @default(autoincrement())
+  usuarioId   Int
+  materiaId   String
+  titulo      String
+  /// Una explicación opcional de qué tiene el apunte.
+  descripcion String?
+  /// El día en que se subió ("AAAA-MM-DD").
+  fecha       String
+  /// Nombre del archivo en `uploads/` (al azar, no se repite), o NULL si no tiene archivo.
+  archivo     String? @unique
+
+  autor   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  materia Materia @relation(fields: [materiaId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@index([materiaId])
+}
+
+/// Un aviso para un usuario. El título y el detalle son el MENSAJE tal como se
+/// mandó (como un mail: si alguien cambia su nombre después, el aviso viejo no
+/// cambia). Lo que sí son datos de otras tablas va como claves foráneas.
+model Notificacion {
+  id           Int      @id @default(autoincrement())
+  /// A quién le llega.
+  usuarioId    Int
+  /// "apunte" | "amistad" | "estudio" | "calendario"
+  tipo         String
+  /// Solo en las de "calendario": "clase" | "parcial" | "entrega" | "estudio".
+  tipoEvento   String?
+  titulo       String
+  detalle      String
+  leida        Boolean  @default(false)
+  /// De quién se trata (quien subió el apunte, quien invitó...).
+  estudianteId Int?
+  materiaId    String?
+  /// Lo que espera respuesta: una solicitud de amistad O una invitación (nunca las
+  /// dos). Al responder, el vínculo se borra y queda la `respuesta`.
+  solicitudId  Int?
+  invitacionId Int?
+  /// "aceptada" | "rechazada", después de responder.
+  respuesta    String?
+  creadaEn     DateTime @default(now())
+
+  usuario    Usuario     @relation("destinatario", fields: [usuarioId], references: [id], onDelete: Cascade)
+  estudiante Usuario?    @relation("protagonista", fields: [estudianteId], references: [id], onDelete: SetNull)
+  materia    Materia?    @relation(fields: [materiaId], references: [id], onDelete: SetNull)
+  solicitud  Solicitud?  @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  invitacion Invitacion? @relation(fields: [invitacionId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+}
