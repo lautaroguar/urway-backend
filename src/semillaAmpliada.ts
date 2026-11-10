@@ -14,13 +14,13 @@
 //   - En la agenda de Franco: un parcial que cae en el horario de su clase (se ve como
 //     círculo), una entrega y una juntada de estudio; más invitaciones y sus avisos.
 //
-// CUÁNDO SE CARGA (lo decide `initDb.ts`):
+// CUÁNDO SE CARGA (lo corre el seeder, `prisma/seed.ts`):
 //   - Base NUEVA: después del primer lote (`sembrar`).
-//   - Base que ya existía (por ejemplo una `dev.db` con datos cargados a mano): UNA
+//   - Base que ya tenía el primer lote (por ejemplo con datos cargados a mano): UNA
 //     sola vez. Solo AGREGA filas, no cambia ni borra nada de lo que ya hay; las
 //     cuentas de la demo (Franco, Mariana, Tomás) se buscan por su correo, porque en
-//     una base vieja sus ids pueden ser otros. Así todas las copias de la base
-//     terminan con los mismos datos nuevos.
+//     esa base sus ids pueden ser otros. Si el lote ya está, no hace nada: por eso
+//     el seeder se puede correr más de una vez sin duplicar datos.
 //
 // TODO O NADA:
 //   Se guarda dentro de una transacción (`prisma.$transaction`): si algo falla no

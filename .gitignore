@@ -1,7 +1,16 @@
 node_modules/
 dist/
 # El .env SÍ se sube al repositorio: no tiene secretos (lo pidió la cátedra).
-# Las bases SQLite (dev.db, las copias de respaldo de una migración, bases de prueba)
-prisma/*.db
-prisma/*.db-journal
+
+# Las bases de datos NUNCA se suben: cada uno arma la suya con las migraciones
+# (prisma/migrations/, que SÍ se suben) y el seeder (prisma/seed.ts):
+#   npm run db:setup
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Los archivos subidos (apuntes y fotos): los genera la app y el seeder.
 uploads/

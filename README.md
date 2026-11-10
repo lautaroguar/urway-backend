@@ -25,52 +25,76 @@ Requisitos: Node.js 20 o superior y npm. Desde esta carpeta:
 ```bash
 npm install
 npx prisma generate
+npm run db:setup
 npm run dev
 ```
 
 > `npx prisma generate` va siempre, aunque `npm install` no muestre errores: las versiones nuevas
 > de npm no corren solas el paso de instalación de Prisma, y sin el cliente generado la API no arranca.
 
-La API queda escuchando en `http://localhost:3000`. Prueba rápida:
-`http://localhost:3000/api/health` → `{ "ok": true }`.
+`npm run db:setup` se corre **una sola vez** (y cada vez que llegue una migración nueva): arma la
+base `prisma/dev.db` aplicando las **migraciones** y la llena con el **seeder**. La API queda
+escuchando en `http://localhost:3000`. Prueba rápida: `http://localhost:3000/api/health` →
+`{ "ok": true }`.
 
 **El `.env` viene en el repositorio** (lo pidió la cátedra y no tiene nada secreto): solo dice
 dónde está la base (`DATABASE_URL="file:./dev.db"`, relativo a `prisma/`) y en qué puerto escucha
 la API (`PORT=3000`). Si el 3000 está ocupado, se cambia ahí.
 
-Al arrancar, `src/initDb.ts` crea `prisma/dev.db` y sus tablas si no existen y, si la
-base está vacía, carga los datos de ejemplo. No hace falta correr `prisma migrate` (igual que
-en la práctica: el motor de migraciones de Prisma falla en Windows).
+Comandos:
 
-Otros comandos:
-
-| Comando            | Qué hace                                                        |
-|--------------------|-----------------------------------------------------------------|
-| `npm run dev`      | Levanta la API y la reinicia sola al guardar cambios            |
-| `npm run db:init`  | Solo prepara la base (tablas, conversión de una base vieja y datos de ejemplo que falten) |
-| `npm run db:reset` | **Borra** la base y las fotos subidas y la vuelve a crear       |
-| `npm run build`    | Compila a `dist/` (`npm start` corre lo compilado)              |
+| Comando              | Qué hace                                                                     |
+|----------------------|------------------------------------------------------------------------------|
+| `npm run dev`        | Levanta la API y la reinicia sola al guardar cambios                         |
+| `npm run db:setup`   | `prisma migrate deploy` + `prisma db seed`: aplica las migraciones que falten y carga los datos de ejemplo |
+| `npm run db:seed`    | Solo el seeder (`prisma db seed`). Se puede correr de nuevo: no duplica nada  |
+| `npm run db:migrate` | `prisma migrate dev`: crea una migración nueva después de cambiar el schema   |
+| `npm run db:reset`   | **Borra** la base, la vuelve a crear con las migraciones y corre el seeder (también vacía `uploads/`) |
+| `npm run build`      | Compila a `dist/` (`npm start` corre lo compilado)                           |
 
 > Si `npm run db:reset` falla con "archivo en uso", primero cortá `npm run dev` (Ctrl+C).
 
-**Si ya tenías una base de una versión anterior** (la del sprint 2, sin normalizar), no hace
-falta borrarla: al arrancar, `initDb.ts` lo detecta (`PRAGMA user_version` vale 0), guarda una
-copia (`prisma/dev.respaldo-AAAA-MM-DD.db`) y la convierte a la forma normalizada con
-`src/migracion.ts`, conservando cuentas, historial, agenda y avisos. Si algo fallara, la
-conversión se deshace entera (transacción).
+## Base de datos: migraciones y seeder (no se sube la base)
+
+**La base de datos no está en el repositorio** (`*.db` está en el `.gitignore`). Lo que se sube
+son los scripts para armarla, como se hace con Prisma ORM:
+
+| Qué                        | Dónde                         | Para qué                                                 |
+|----------------------------|-------------------------------|----------------------------------------------------------|
+| El modelo                  | `prisma/schema.prisma`        | Las tablas y sus relaciones (de acá sale el cliente)      |
+| Las **migraciones**        | `prisma/migrations/`          | El historial de cambios de la base, en SQL. Prisma las aplica en orden y anota cuáles ya corrió en la tabla `_prisma_migrations` |
+| El **seeder**              | `prisma/seed.ts`              | Carga los datos de ejemplo (usa `src/semilla.ts` y `src/semillaAmpliada.ts`) |
+| La configuración de Prisma | `prisma.config.ts`            | Dónde están el schema y las migraciones, y el comando del seeder |
+
+La migración `20261110124500_init` crea las 19 tablas. La generó Prisma a partir del schema y se le
+agregaron a mano las reglas que el schema no sabe expresar: los `CHECK` (estrellas 1 a 5, nota 1 a
+10, horario "desde < hasta", valores permitidos de cada tipo...) y el índice único
+`Solicitud_par_key` (una sola solicitud de amistad entre dos personas, en cualquier sentido).
+
+**Para cambiar la base** (agregar una columna, una tabla...):
+
+1. Se cambia `prisma/schema.prisma`.
+2. `npm run db:migrate -- --name que_cambio` → Prisma compara el schema con las migraciones,
+   escribe la migración nueva en `prisma/migrations/` y la aplica a tu base.
+3. Se suben juntos el schema y la carpeta de la migración nueva. Los demás, al bajar el cambio,
+   corren `npm run db:setup` (aplica solo lo que les falta, sin borrar sus datos).
+
+Una migración que ya se subió **no se edita**: si hay que corregir algo, va en otra migración.
 
 **Los datos de ejemplo vienen en dos lotes**: `src/semilla.ts` (el plan base y las 5 cuentas de
 la demo) y `src/semillaAmpliada.ts` (6 materias más, 10 estudiantes, sus apuntes, clases, reseñas,
-amistades y avisos). Una base nueva carga los dos. Una base que ya tenía datos (versión 1) recibe
-**solo el segundo lote, una vez**, sin tocar lo que ya tenía (las cuentas de la demo se buscan por
-correo). Así todas las copias de la base tienen los mismos datos nuevos. `npm run db:reset` deja
-la base exactamente como la semilla.
+amistades y avisos). El seeder carga el primero si la base no tiene usuarios y el segundo si
+todavía no está, así que correrlo dos veces no duplica nada. Los apuntes de ejemplo son PDF que el
+seeder escribe en `uploads/` (tampoco se suben). `npm run db:reset` deja la base exactamente como
+la semilla.
 
-| `PRAGMA user_version` | Qué base es                                                 |
-|-----------------------|-------------------------------------------------------------|
-| 0                     | La del sprint 2, sin normalizar (se convierte sola)         |
-| 1                     | Normalizada, con el primer lote de datos de ejemplo         |
-| 2                     | Normalizada, con los dos lotes (la de ahora)                |
+**Si ya tenías una `prisma/dev.db` de antes** (de cuando la creaba `src/initDb.ts`, sin
+migraciones), `npm run db:setup` avisa que la base "no está vacía" (error `P3005`). Hay dos salidas:
+
+- `npm run db:reset`: la borra y la arma de nuevo con las migraciones y el seeder (se pierde lo
+  que hayas cargado a mano).
+- Para conservarla: `npx prisma migrate resolve --applied 20261110124500_init` le anota a Prisma
+  que esa migración ya está aplicada (las tablas son las mismas).
 
 ## Cuentas de prueba
 
@@ -101,12 +125,16 @@ celular, subir un apunte, y entrar como Mariana en la web (`w` en Expo): le lleg
 
 ```
 urway_backend/
-├── prisma/schema.prisma   El modelo de datos (el "contrato"): 19 tablas, normalizado (3FN)
+├── prisma.config.ts       Configuración de la CLI de Prisma (schema, migraciones y comando del seeder)
+├── prisma/
+│   ├── schema.prisma      El modelo de datos (el "contrato"): 19 tablas, normalizado (3FN)
+│   ├── migrations/        Las migraciones (SQL): crean la base. Se suben al repo
+│   │   ├── migration_lock.toml
+│   │   └── 20261110124500_init/migration.sql   Las 19 tablas, con sus CHECK e índices
+│   ├── seed.ts            El seeder: carga los datos de ejemplo (`npx prisma db seed`)
+│   └── dev.db             La base. NO se sube: la arma `npm run db:setup`
 ├── src/
 │   ├── index.ts           Express: middlewares, rutas, descargas, limpieza de sesiones, arranque
-│   ├── initDb.ts          Crea las tablas con SQL (claves, CHECK, índices) y carga la semilla
-│   ├── migracion.ts       Convierte una base vieja (sin normalizar) a la forma de ahora
-│   ├── sqlite.ts          Funciones chicas para usar SQL directo (las usan initDb y migracion)
 │   ├── archivos.ts        La carpeta uploads/: guardar, borrar y reconocer fotos y PDF
 │   ├── semilla.ts         Datos de ejemplo, 1º lote (plan, correlativas, la demo, apuntes en PDF, avisos)
 │   ├── semillaAmpliada.ts Datos de ejemplo, 2º lote (6 materias y 10 estudiantes más, con todo lo suyo)
@@ -116,7 +144,7 @@ urway_backend/
 │   ├── consultas.ts       Consultas compartidas y la forma del JSON que se devuelve
 │   ├── utiles.ts          leerId, validaciones, fechas, noExiste (P2025), responderError
 │   └── rutas/             Una carpeta por tema (cuentas, materias, eventos...)
-└── uploads/               Los apuntes (fotos y PDF) y las fotos de perfil (nombre al azar)
+└── uploads/               Los apuntes (fotos y PDF) y las fotos de perfil (nombre al azar). No se sube
 ```
 
 ## Endpoints
@@ -220,8 +248,9 @@ Además, la base hace cumplir sola varias reglas: `CHECK` (estrellas 1 a 5, nota
 "desde < hasta", una juntada de estudio sin materia, valores permitidos de cada tipo), un **índice
 único** para que entre dos personas haya una sola solicitud de amistad (en cualquier sentido), y
 borrados en cascada: al abandonar una cursada se borra su reseña; al borrar una invitación o una
-solicitud, su aviso todavía sin responder. Lo que **no** se guarda porque se calcula: el estado de
-cada materia, su dificultad promedio y la facultad de un usuario.
+solicitud, su aviso todavía sin responder (los `CHECK` y ese índice están en la migración `init`;
+las claves foráneas y los borrados en cascada salen del schema). Lo que **no** se guarda porque se
+calcula: el estado de cada materia, su dificultad promedio y la facultad de un usuario.
 
 La **API no cambió**: `consultas.ts` vuelve a juntar las tablas (con `include`) y la app recibe el
 mismo JSON de antes.

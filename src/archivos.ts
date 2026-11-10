@@ -11,9 +11,8 @@
 //     llega por la URL antes de tocar el disco).
 //
 // POR QUÉ ESTÁ APARTE:
-//   Antes vivía en `initDb.ts`, pero ahora lo usan varias partes (apuntes, perfil,
-//   semilla, descargas) y `semilla.ts` no puede importar `initDb.ts` (se
-//   importarían en círculo).
+//   Lo usan varias partes: los apuntes, el perfil, las descargas y los datos de
+//   ejemplo (`semilla.ts` y el seeder `prisma/seed.ts`).
 
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";

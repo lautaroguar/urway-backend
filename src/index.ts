@@ -14,7 +14,9 @@
 //   1. Crea la app de Express y registra los MIDDLEWARES (corren antes que las
 //      rutas, en el orden en que se registran).
 //   2. Monta las rutas, agrupadas por tema en `src/rutas/`.
-//   3. Arranca: primero prepara la base (`inicializarBase`) y después escucha.
+//   3. Arranca: primero revisa que la base esté lista (`verificarBase`) y después
+//      escucha. La base NO la crea la API: la crean las migraciones de Prisma y la
+//      llena el seeder (`npm run db:setup`, ver el README).
 //
 // TODAS LAS RUTAS (ver cada archivo de `src/rutas/` para el detalle):
 //   GET  /api/health                         → prueba de que el servidor está vivo
@@ -37,7 +39,6 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { carpetaArchivos, NOMBRE_VALIDO } from "./archivos";
-import { inicializarBase } from "./initDb";
 import { prisma } from "./prisma";
 import { rutasApuntes } from "./rutas/apuntes";
 import { rutasComunidad } from "./rutas/comunidad";
@@ -142,9 +143,30 @@ async function limpiar() {
   }
 }
 
+/**
+ * Revisa que la base esté lista ANTES de recibir pedidos. Si no se corrieron las
+ * migraciones, avisa qué comando falta en vez de fallar en el primer pedido.
+ */
+async function verificarBase() {
+  let carreras: number;
+  try {
+    carreras = await prisma.carrera.count();
+  } catch (error) {
+    console.error(
+      "La base de datos no está lista (¿faltan las tablas?). Creala con `npm run db:setup`:\n" +
+        "aplica las migraciones de prisma/migrations y carga los datos de ejemplo."
+    );
+    throw error;
+  }
+  // Sin carreras nadie puede registrarse: faltan los datos de ejemplo.
+  if (carreras === 0) {
+    console.warn("La base está vacía: cargá los datos de ejemplo con `npm run db:seed`.");
+  }
+}
+
 async function iniciar() {
-  // Primero, la base lista (tablas creadas y datos de ejemplo si estaba vacía).
-  await inicializarBase();
+  // Primero, revisar la base (la crean las migraciones, no la API).
+  await verificarBase();
   // Y las sesiones vencidas afuera: ahora, y después cada hora. `unref` hace que este
   // reloj no mantenga vivo el proceso si el servidor se está cerrando.
   await limpiar();
@@ -156,7 +178,7 @@ async function iniciar() {
   });
 }
 
-// Si la base no se puede preparar, se muestra el error y se cierra el proceso.
+// Si la base no está lista, se muestra el error y se cierra el proceso.
 iniciar().catch((error) => {
   console.error("No se pudo iniciar la API", error);
   process.exit(1);

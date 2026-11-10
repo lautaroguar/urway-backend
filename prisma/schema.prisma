@@ -6,11 +6,18 @@
 // cliente tipado (`npx prisma generate`): así `prisma.usuario.findMany()` ya sabe
 // qué campos tiene un usuario. [PRÁCTICA 03 y 08]
 //
-// Las tablas las CREA `src/initDb.ts` con SQL (como en la práctica de la cátedra:
-// el motor de migraciones de Prisma dio error en Windows). Por eso los nombres y
-// los tipos de acá tienen que coincidir con el SQL de `initDb.ts`. Lo que Prisma
-// no sabe expresar (las reglas CHECK, por ejemplo "las estrellas van de 1 a 5")
-// está solo en ese SQL: igual lo hace cumplir SQLite.
+// Las tablas las CREAN LAS MIGRACIONES de Prisma (`prisma/migrations/`), y los
+// datos de ejemplo los carga el SEEDER (`prisma/seed.ts`): `npm run db:setup` hace
+// las dos cosas. La base (`prisma/dev.db`) no se sube al repositorio.
+//
+// Si se cambia este archivo, se crea una migración NUEVA con
+// `npm run db:migrate -- --name que_cambio` (Prisma compara este modelo con las
+// migraciones y escribe el SQL que falta) y se sube junto con el cambio.
+//
+// Lo que Prisma no sabe expresar en este archivo (las reglas CHECK, por ejemplo
+// "las estrellas van de 1 a 5", y el índice único de `Solicitud` en cualquier
+// sentido) se agregó a mano al SQL de la migración `init`: igual lo hace cumplir
+// SQLite.
 //
 // LA BASE ESTÁ NORMALIZADA (hasta la 3ª forma normal):
 //   1FN — Cada columna guarda UN solo valor. Nada de listas en texto: los días de
@@ -33,7 +40,7 @@
 //     como AAAA-MM-DD (también la fecha de nacimiento; la API la muestra DD/MM/AAAA).
 //   - `?` = el campo puede ser NULL.
 //   - Los valores con opciones fijas ("todos" | "amigos") son texto con una regla
-//     CHECK en `initDb.ts` (SQLite no tiene el tipo "enum").
+//     CHECK en la migración `init` (SQLite no tiene el tipo "enum").
 
 generator client {
   provider = "prisma-client-js"
@@ -339,7 +346,8 @@ model Invitacion {
 // -----------------------------------------------------------------------------
 
 /// Una solicitud de amistad. Aceptada = son amigos. Entre dos personas hay a lo
-/// sumo UNA (en cualquier sentido): lo asegura un índice único en `initDb.ts`.
+/// sumo UNA (en cualquier sentido): lo asegura el índice único `Solicitud_par_key`
+/// de la migración `init`.
 model Solicitud {
   id       Int      @id @default(autoincrement())
   deId     Int

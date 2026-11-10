@@ -2,7 +2,7 @@
 // src/semilla.ts — Los datos de ejemplo con los que arranca la base
 // =============================================================================
 //
-// QUÉ CARGA (solo si la base está vacía, ver `initDb.ts`):
+// QUÉ CARGA (solo si la base no tiene usuarios; lo corre el seeder `prisma/seed.ts`):
 //   - El CATÁLOGO: la facultad y la carrera que ofrece la app (UCA · Ingeniería
 //     Informática). Sus `id` son las mismas claves que manda el registro de la app.
 //   - El PLAN de estudios de esa carrera: 10 materias, sus CORRELATIVIDADES, sus
