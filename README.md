@@ -63,7 +63,7 @@ son los scripts para armarla, como se hace con Prisma ORM:
 |----------------------------|-------------------------------|----------------------------------------------------------|
 | El modelo                  | `prisma/schema.prisma`        | Las tablas y sus relaciones (de acá sale el cliente)      |
 | Las **migraciones**        | `prisma/migrations/`          | El historial de cambios de la base, en SQL. Prisma las aplica en orden y anota cuáles ya corrió en la tabla `_prisma_migrations` |
-| El **seeder**              | `prisma/seed.ts`              | Carga los datos de ejemplo (usa `src/semilla.ts` y `src/semillaAmpliada.ts`) |
+| El **seeder**              | `prisma/seed.ts`              | Carga los datos de ejemplo de `src/semilla.ts` |
 | La configuración de Prisma | `prisma.config.ts`            | Dónde están el schema y las migraciones, y el comando del seeder |
 
 La migración `20261110124500_init` crea las 19 tablas. La generó Prisma a partir del schema y se le
@@ -81,12 +81,16 @@ agregaron a mano las reglas que el schema no sabe expresar: los `CHECK` (estrell
 
 Una migración que ya se subió **no se edita**: si hay que corregir algo, va en otra migración.
 
-**Los datos de ejemplo vienen en dos lotes**: `src/semilla.ts` (el plan base y las 5 cuentas de
-la demo) y `src/semillaAmpliada.ts` (6 materias más, 10 estudiantes, sus apuntes, clases, reseñas,
-amistades y avisos). El seeder carga el primero si la base no tiene usuarios y el segundo si
-todavía no está, así que correrlo dos veces no duplica nada. Los apuntes de ejemplo son PDF que el
-seeder escribe en `uploads/` (tampoco se suben). `npm run db:reset` deja la base exactamente como
-la semilla.
+**Los datos de ejemplo están todos en `src/semilla.ts`**: el plan (16 materias con sus
+correlativas), 15 estudiantes con su historial, clases, parciales, juntadas, reseñas, amistades,
+25 apuntes y los avisos. Ese archivo tiene solo datos; el que los guarda es `prisma/seed.ts`:
+
+1. Si la base ya tiene usuarios, no carga nada y lo avisa (por eso correrlo dos veces no duplica).
+2. Si está vacía, carga todo de una vez, dentro de una transacción (o se carga todo, o nada).
+3. Muestra cuántas filas quedaron en cada tabla.
+
+Los apuntes de ejemplo son PDF que el seeder escribe en `uploads/` (tampoco se suben).
+`npm run db:reset` deja la base exactamente como la semilla.
 
 **Si ya tenías una `prisma/dev.db` de antes** (de cuando la creaba `src/initDb.ts`, sin
 migraciones), `npm run db:setup` avisa que la base "no está vacía" (error `P3005`). Hay dos salidas:
@@ -136,8 +140,7 @@ urway_backend/
 ├── src/
 │   ├── index.ts           Express: middlewares, rutas, descargas, limpieza de sesiones, arranque
 │   ├── archivos.ts        La carpeta uploads/: guardar, borrar y reconocer fotos y PDF
-│   ├── semilla.ts         Datos de ejemplo, 1º lote (plan, correlativas, la demo, apuntes en PDF, avisos)
-│   ├── semillaAmpliada.ts Datos de ejemplo, 2º lote (6 materias y 10 estudiantes más, con todo lo suyo)
+│   ├── semilla.ts         Los datos de ejemplo, todos juntos (solo datos: los guarda prisma/seed.ts)
 │   ├── prisma.ts          El único PrismaClient de la API
 │   ├── seguridad.ts       Hash de contraseñas, tokens, el middleware de sesión y su limpieza
 │   ├── reglas.ts          Las reglas académicas (estado, correlativas, arrancar/abandonar/reseñar)
