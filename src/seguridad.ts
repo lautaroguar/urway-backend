@@ -42,7 +42,7 @@ const DURACION_SESION = 30 * 24 * 60 * 60 * 1000;
 
 /** Calcula el hash de una contraseña nueva. Devuelve el hash y la sal (las dos se guardan). */
 export async function hashearContrasenia(contrasenia: string) {
-  const sal = randomBytes(16).toString("hex"); // 16 bytes al azar → 32 caracteres
+  const sal = randomBytes(16).toString("hex"); // 16 bytes al azar → 32 caracteres hexadecimales
   const hash = await scryptAsync(contrasenia, sal, 64);
   return { hash: hash.toString("hex"), sal };
 }

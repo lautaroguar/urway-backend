@@ -53,6 +53,7 @@ export const NOTA_APROBACION = 4;
 export const NOTA_MAXIMA = 10;
 
 const aprobo = (nota: number) => nota >= NOTA_APROBACION;
+
 const permiteRecursar = (tipo: string) => tipo === "recuperatorio" || tipo === "final";
 
 /** En qué estado tiene que estar la materia para cargar ese tipo. */
@@ -93,6 +94,7 @@ export function recorrerHistorial(historial: InstanciaRegla[]): Recorrido {
     let efecto: Efecto = null;
     const aprobada = aprobo(instancia.nota);
 
+    // labura con finales
     if (instancia.tipo === "final") {
       if (estado === "pendienteFinal" && aprobada) {
         estado = "aprobada";
@@ -104,6 +106,8 @@ export function recorrerHistorial(historial: InstanciaRegla[]): Recorrido {
         intento += 1;
         efecto = "recursa";
       }
+
+    // con trabajos que aprueban o recursan la cursada
     } else if (estado === "cursando") {
       if (aprobada && instancia.cierraCursada) {
         estado = "pendienteFinal";
