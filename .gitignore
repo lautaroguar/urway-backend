@@ -11,6 +11,8 @@ dist/
 *.db-shm
 *.sqlite
 *.sqlite3
+*.env
+
 
 # Los archivos subidos (apuntes y fotos): los genera la app y el seeder.
 uploads/
